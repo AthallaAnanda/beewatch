@@ -216,3 +216,23 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Virtual environment
+venv/
+
+# Dataset (terlalu besar untuk GitHub)
+data/
+
+# File model (besar, di-share lewat cara lain)
+models/
+
+# Environment variables (berisi token rahasia)
+.env
+server/.env
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# OS files
+Thumbs.db
+desktop.ini
