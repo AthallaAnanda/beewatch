@@ -92,9 +92,11 @@ class BeeWatchInference:
         recon   = self.audio_model.predict(feat_scaled, verbose=0)
         raw_err = float(np.mean((feat_scaled - recon) ** 2))
 
-        print(f"[DEBUG] n_segs={n_segs}, raw_err={raw_err:.6f}")
-        print(f"[DEBUG] feat_scaled mean={feat_scaled.mean():.4f} std={feat_scaled.std():.4f} min={feat_scaled.min():.4f} max={feat_scaled.max():.4f}")
-        print(f"[DEBUG] thresholds keys: {list(self.audio_thr.keys())}")
+# Di compute_audio_score, tepat setelah baris raw_err = ...
+        print(f"[DEBUG] n_segs     : {n_segs}")
+        print(f"[DEBUG] raw_err    : {raw_err:.6f}")
+        print(f"[DEBUG] raw_p95    : {self.audio_thr['audio_raw_p95']:.6f}")
+        print(f"[DEBUG] feat_scaled: mean={feat_scaled.mean():.4f} std={feat_scaled.std():.4f} min={feat_scaled.min():.2f} max={feat_scaled.max():.2f}")
         
         if 'audio_raw_p95' in self.audio_thr:
             # Thresholds.pkl sudah punya raw stats → pakai ini
