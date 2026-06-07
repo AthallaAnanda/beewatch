@@ -72,20 +72,18 @@ class BeeWatchInference:
         cfg = self.audio_cfg
         sr  = cfg['sr']
         sl  = int(cfg['segment_duration'] * sr)
-
+    
         try:
             audio, _ = librosa.load(wav_path, sr=sr, mono=True)
-            print(f"[DEBUG] audio len  : {len(audio)} samples ({len(audio)/sr:.1f} detik)")
-            print(f"[DEBUG] audio range: min={audio.min():.4f} max={audio.max():.4f} rms={np.sqrt(np.mean(audio**2)):.6f}")
         except Exception as e:
             return {'audio_score': 0.0, 'is_anomaly': False,
                     'severity': 'normal', 'error': str(e)}
-
+    
         n_segs = len(audio) // sl
         if n_segs == 0:
             return {'audio_score': 0.0, 'is_anomaly': False,
                     'severity': 'normal', 'n_segments': 0}
-
+    
         feats       = [self._extract_audio_features(audio[i*sl:(i+1)*sl], sr)
                        for i in range(n_segs)]
         feat_scaled = self.audio_scaler.transform(
@@ -93,37 +91,25 @@ class BeeWatchInference:
         )
         recon   = self.audio_model.predict(feat_scaled, verbose=0)
         raw_err = float(np.mean((feat_scaled - recon) ** 2))
-
-# Di compute_audio_score, tepat setelah baris raw_err = ...
-        print(f"[DEBUG] n_segs     : {n_segs}")
-        print(f"[DEBUG] raw_err    : {raw_err:.6f}")
-        print(f"[DEBUG] raw_p95    : {self.audio_thr['audio_raw_p95']:.6f}")
-        print(f"[DEBUG] feat_scaled: mean={feat_scaled.mean():.4f} std={feat_scaled.std():.4f} min={feat_scaled.min():.2f} max={feat_scaled.max():.2f}")
-        
-        if 'audio_raw_p95' in self.audio_thr:
-            # Thresholds.pkl sudah punya raw stats → pakai ini
-            raw_p95  = self.audio_thr['audio_raw_p95']
-            raw_mean = self.audio_thr['audio_raw_mean']
-            score = float(np.clip(
-                (raw_err - raw_mean) / ((raw_p95 - raw_mean) * 2 + 1e-8),
-                0.0, 1.0
-            ))
-            is_anomaly = raw_err > raw_p95
-        else:
-            thr_val    = self.audio_thr.get('audio_threshold_pct95', 0.35)
-            err_mean   = self.audio_thr.get('audio_mean', 0.0)
-            err_std    = self.audio_thr.get('audio_std', 1.0)
-            upper      = err_mean + 3 * err_std
-            score      = float(np.clip(
-                (raw_err - err_mean) / (upper - err_mean + 1e-8),
-                0.0, 1.0
-            ))
-            is_anomaly = raw_err > thr_val
-
+    
+        raw_p95  = self.audio_thr['audio_raw_p95']
+        raw_mean = self.audio_thr['audio_raw_mean']
+        raw_std  = self.audio_thr['audio_raw_std']
+    
+        # Z-score: berapa standar deviasi raw_err dari mean
+        # Dibagi 6 supaya z=3 (3 std di atas mean) → score ≈ 1.0
+        # Ditambah 0.5 supaya error = mean → score = 0.5
+        z = (raw_err - raw_mean) / (raw_std + 1e-8)
+        score = float(np.clip(z / 6.0 + 0.5, 0.0, 1.0))
+    
+        is_anomaly = raw_err > raw_p95
+    
+        print(f"[DEBUG] raw_err={raw_err:.6f} raw_mean={raw_mean:.6f} raw_p95={raw_p95:.6f} z={z:.3f} score={score:.4f}")
+    
         severity = 'normal'
         if is_anomaly:
             severity = 'critical' if score > 0.75 else 'warning'
-            
+    
         return {
             'audio_score' : score,
             'is_anomaly'  : is_anomaly,
