@@ -75,6 +75,8 @@ class BeeWatchInference:
 
         try:
             audio, _ = librosa.load(wav_path, sr=sr, mono=True)
+            print(f"[DEBUG] audio len  : {len(audio)} samples ({len(audio)/sr:.1f} detik)")
+            print(f"[DEBUG] audio range: min={audio.min():.4f} max={audio.max():.4f} rms={np.sqrt(np.mean(audio**2)):.6f}")
         except Exception as e:
             return {'audio_score': 0.0, 'is_anomaly': False,
                     'severity': 'normal', 'error': str(e)}
