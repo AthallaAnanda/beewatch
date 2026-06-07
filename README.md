@@ -500,7 +500,7 @@ beewatch/
 ### Clone dan Install Dependensi
 
 ```bash
-git clone https://github.com/<username>/beewatch.git
+git clone https://github.com/AthallaAnanda/beewatch.git
 cd beewatch
 python -m venv venv
 
