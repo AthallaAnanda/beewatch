@@ -1,6 +1,6 @@
-# 🐝 BeeWatch — Smart Hive Integrated Monitoring System
+# 🐝 BeeWatch: Smart Hive Integrated Monitoring System
 
-BeeWatch adalah sistem pemantauan sarang lebah cerdas berbasis **IoT + Machine Learning** yang mendeteksi anomali kondisi sarang secara *real-time* menggunakan dua modalitas: **sensor lingkungan** (suhu, kelembaban, tekanan) dan **audio akustik** dari dalam sarang. Sistem ini dibangun di atas dua node ESP32 yang bekerja secara paralel, mengirimkan data ke server Flask yang menjalankan dua model autoencoder untuk menghasilkan satu *combined anomaly score*.
+BeeWatch adalah sistem pemantauan sarang lebah cerdas berbasis **IoT dan Machine Learning** yang mendeteksi anomali kondisi sarang secara *real-time* menggunakan dua modalitas: **sensor lingkungan** (suhu, kelembaban, tekanan) dan **audio akustik** dari dalam sarang. Sistem ini dibangun di atas dua node ESP32 yang bekerja secara paralel, mengirimkan data ke server Flask yang menjalankan dua model autoencoder untuk menghasilkan satu *combined anomaly score*.
 
 ---
 
@@ -9,12 +9,12 @@ BeeWatch adalah sistem pemantauan sarang lebah cerdas berbasis **IoT + Machine L
 1. [Arsitektur Sistem](#arsitektur-sistem)
 2. [Firmware ESP32](#firmware-esp32)
 3. [Server Flask](#server-flask)
-4. [Model Machine Learning — Sensor](#model-sensor-autoencoder)
-5. [Model Machine Learning — Audio](#model-audio-autoencoder)
+4. [Model Sensor Autoencoder](#model-sensor-autoencoder)
+5. [Model Audio Autoencoder](#model-audio-autoencoder)
 6. [Penggabungan Skor](#penggabungan-skor-combined-score)
 7. [Notifikasi Telegram](#notifikasi-telegram)
 8. [Struktur Proyek](#struktur-proyek)
-9. [Instalasi & Menjalankan Server](#instalasi--menjalankan-server)
+9. [Instalasi dan Menjalankan Server](#instalasi-dan-menjalankan-server)
 10. [API Endpoint](#api-endpoint)
 11. [Training Model](#training-model)
 12. [Dependensi](#dependensi)
@@ -28,7 +28,7 @@ BeeWatch adalah sistem pemantauan sarang lebah cerdas berbasis **IoT + Machine L
 │   ESP32 Sensor Node │      │   ESP32 Audio Node  │
 │                     │      │                     │
 │  BME280             │      │  INMP441 (I2S mic)  │
-│  suhu / kelembaban  │      │  rekam WAV 1 menit  │
+│  suhu / kelembaban  │      │  rekam WAV 30 detik │
 │  / tekanan          │      │  setiap 15 menit    │
 └────────┬────────────┘      └──────────┬──────────┘
          │  POST /upload/sensor          │  POST /upload/audio
@@ -58,51 +58,52 @@ BeeWatch adalah sistem pemantauan sarang lebah cerdas berbasis **IoT + Machine L
 
 ### Alur Deteksi Anomali
 
-1. **ESP32 Sensor** membaca BME280 setiap interval dan mengirim JSON ke `/upload/sensor`
-2. **ESP32 Audio** merekam audio 1 menit via INMP441, mengonversinya ke WAV, lalu mengirim ke `/upload/audio`
-3. Server menyimpan pembacaan sensor dan audio terbaru; keduanya digabungkan jika selisih waktu ≤ 5 menit
-4. `combined_score = 0.5 × sensor_score + 0.5 × audio_score`
-5. Jika `combined_score > 0.5` → **status ANOMALI**, laporan dikirim ke Telegram
-6. Jika anomali terdeteksi N kali berturut-turut (default: 2) → **alert darurat** dikirim
+1. **ESP32 Sensor** membaca BME280 setiap 15 menit dan mengirim data JSON ke `/upload/sensor`
+2. **ESP32 Audio** merekam audio 30 detik via INMP441, menyimpannya sebagai WAV di SPIFFS, lalu mengirim ke `/upload/audio`
+3. Server menyimpan pembacaan sensor dan audio terbaru; keduanya digabungkan jika selisih waktu tidak lebih dari 5 menit
+4. Combined score dihitung dengan rumus `0.5 × sensor_score + 0.5 × audio_score`
+5. Jika `combined_score > 0.5`, status ditetapkan sebagai **ANOMALI** dan laporan dikirim ke Telegram
+6. Jika anomali terdeteksi secara berturut-turut sebanyak N kali (default: 2), server mengirim **alert darurat**
 
 ---
 
 ## Firmware ESP32
 
-Firmware tersimpan di folder `firmware/` dan ditulis untuk **Arduino IDE** (`.ino`). Kedua node bekerja secara independen dan mengirim data ke server Flask yang sama.
+Firmware tersimpan di folder `firmware/` dan ditulis untuk **Arduino IDE** (format `.ino`). Kedua node bekerja secara independen dan mengirim data ke server Flask yang sama.
 
-### Sensor Node (`firmware/sensor_node/sensor_node.ino`)
+### Sensor Node
 
-**Hardware:** ESP32-B + BME280
+**File:** `firmware/sensor_node/sensor_node.ino`  
+**Hardware:** ESP32 + BME280
 
-**Wiring BME280 → ESP32:**
+**Wiring BME280 ke ESP32:**
 
-| BME280 | Keterangan | ESP32 |
+| Pin BME280 | Fungsi | Pin ESP32 |
 |---|---|---|
 | VIN | Catu daya | 3.3V |
 | GND | Ground | GND |
 | SDA | I2C Data | GPIO 25 |
 | SCL | I2C Clock | GPIO 26 |
 
-> Pin SDO → GND: alamat I2C `0x76` | Pin SDO → 3.3V: alamat I2C `0x77`
+> Jika pin SDO dihubungkan ke GND, alamat I2C yang digunakan adalah `0x76`. Jika dihubungkan ke 3.3V, alamatnya menjadi `0x77`.
 
-**Konfigurasi utama:**
+**Parameter konfigurasi:**
 
 | Parameter | Nilai | Keterangan |
 |---|---|---|
-| `INTERVAL_MS` | 15 menit | Interval kirim ke server |
-| `PRESSURE_OFFSET` | 89.0 hPa | Offset kalibrasi tekanan (sesuaikan lokasi) |
-| `WIFI_MAX_RETRY` | 5 | Maks percobaan ulang koneksi WiFi |
-| `HTTP_MAX_RETRY` | 3 | Maks percobaan ulang HTTP POST |
-| `HTTP_RETRY_DELAY` | 3000 ms | Jeda antar percobaan HTTP |
+| `INTERVAL_MS` | 15 menit | Interval pengiriman data ke server |
+| `PRESSURE_OFFSET` | 89.0 hPa | Offset kalibrasi tekanan, sesuaikan dengan lokasi |
+| `WIFI_MAX_RETRY` | 5 | Jumlah maksimum percobaan ulang koneksi WiFi |
+| `HTTP_MAX_RETRY` | 3 | Jumlah maksimum percobaan ulang HTTP POST |
+| `HTTP_RETRY_DELAY` | 3000 ms | Jeda waktu antar percobaan HTTP |
 
-**Alur kerja (setiap 15 menit):**
-1. Baca suhu, kelembaban, tekanan dari BME280
-2. Terapkan offset kalibrasi tekanan (`pressure + PRESSURE_OFFSET`)
-3. HTTP POST JSON ke Flask `/upload/sensor`
-4. Tunggu 15 menit, ulangi
+**Alur kerja setiap siklus 15 menit:**
+1. Baca nilai suhu, kelembaban, dan tekanan dari BME280
+2. Tambahkan offset kalibrasi pada nilai tekanan
+3. Kirim payload JSON ke Flask via HTTP POST
+4. Tunggu hingga interval berikutnya
 
-**Payload JSON yang dikirim:**
+**Contoh payload JSON yang dikirim:**
 ```json
 {
   "temperature": 35.5,
@@ -111,14 +112,14 @@ Firmware tersimpan di folder `firmware/` dan ditulis untuk **Arduino IDE** (`.in
 }
 ```
 
-**Konfigurasi wajib diubah sebelum flash:**
+**Konfigurasi yang wajib diubah sebelum flashing:**
 ```cpp
-#define WIFI_SSID      "nama_wifi"          // ganti dengan SSID Anda
-#define WIFI_PASSWORD  "password_wifi"       // ganti dengan password Anda
-#define SERVER_URL     "http://<IP_SERVER>:5000/upload/sensor"  // IP server Flask
+#define WIFI_SSID      "nama_wifi"
+#define WIFI_PASSWORD  "password_wifi"
+#define SERVER_URL     "http://<IP_SERVER>:5000/upload/sensor"
 ```
 
-**Library yang dibutuhkan (Arduino IDE):**
+**Library yang dibutuhkan:**
 - `WiFi.h` (bawaan ESP32 core)
 - `HTTPClient.h` (bawaan ESP32 core)
 - `ArduinoJson` by Benoit Blanchon
@@ -126,57 +127,57 @@ Firmware tersimpan di folder `firmware/` dan ditulis untuk **Arduino IDE** (`.in
 
 ---
 
-### Audio Node (`firmware/audio_node/audio_node.ino`)
+### Audio Node
 
-**Hardware:** ESP32-A + INMP441
+**File:** `firmware/audio_node/audio_node.ino`  
+**Hardware:** ESP32 + INMP441
 
-**Wiring INMP441 → ESP32:**
+**Wiring INMP441 ke ESP32:**
 
-| INMP441 | Keterangan | ESP32 |
+| Pin INMP441 | Fungsi | Pin ESP32 |
 |---|---|---|
 | VDD | Catu daya | 3.3V |
 | GND | Ground | GND |
-| WS | Word Select (LRCK) | GPIO 15 |
-| SCK | Serial Clock (BCLK) | GPIO 14 |
+| WS | Word Select / LRCK | GPIO 15 |
+| SCK | Serial Clock / BCLK | GPIO 14 |
 | SD | Serial Data | GPIO 32 |
-| L/R | Channel select (kiri) | GND |
+| L/R | Pemilih channel (kiri) | GND |
 
-> **Penting sebelum upload:** Ubah partition scheme di Arduino IDE:
-> `Tools → Partition Scheme → No OTA (2MB APP / 2MB SPIFFS)`
+> **Sebelum upload firmware:** Ubah partition scheme di Arduino IDE melalui menu `Tools > Partition Scheme > No OTA (2MB APP / 2MB SPIFFS)`. Langkah ini diperlukan agar SPIFFS memiliki ruang yang cukup untuk menyimpan file WAV.
 
-**Konfigurasi utama:**
+**Parameter konfigurasi:**
 
 | Parameter | Nilai | Keterangan |
 |---|---|---|
 | `SAMPLE_RATE` | 16.000 Hz | Harus sama dengan konfigurasi model audio |
 | `RECORD_SECONDS` | 30 detik | Durasi rekaman per siklus |
-| `INTERVAL_MINUTES` | 15 menit | Interval antar siklus rekam-kirim |
-| `WAV_PATH` | `/beewatch.wav` | Path file di SPIFFS |
-| `HTTP_TIMEOUT_MS` | 90.000 ms | Timeout upload (file WAV besar) |
+| `INTERVAL_MINUTES` | 15 menit | Interval antar siklus rekam dan kirim |
+| `WAV_PATH` | `/beewatch.wav` | Lokasi file sementara di SPIFFS |
+| `HTTP_TIMEOUT_MS` | 90.000 ms | Timeout untuk proses upload file WAV |
 | `I2S_PORT` | `I2S_NUM_0` | Port I2S yang digunakan |
-| `LED_PIN` | GPIO 2 | LED indikator bawaan ESP32 |
+| `LED_PIN` | GPIO 2 | LED indikator status bawaan ESP32 |
 
-**Alur kerja (setiap 15 menit):**
-1. Rekam 30 detik audio dari INMP441 via I2S
-2. Simpan ke SPIFFS sebagai `beewatch.wav` (16-bit PCM, mono, 16 kHz)
-3. HTTP POST multipart ke Flask `/upload/audio`
-4. Hapus file WAV dari SPIFFS
-5. Tunggu sisa interval 15 menit, ulangi
+**Alur kerja setiap siklus 15 menit:**
+1. Rekam audio 30 detik dari INMP441 via I2S
+2. Simpan ke SPIFFS sebagai `beewatch.wav` (format 16-bit PCM, mono, 16 kHz)
+3. Upload file WAV ke Flask via HTTP POST multipart
+4. Hapus file WAV dari SPIFFS untuk membebaskan memori
+5. Tunggu hingga sisa interval 15 menit terpenuhi
 
-**LED indikator:**
-- Berkedip cepat (100 ms): Error SPIFFS atau I2S saat startup
-- Berkedip normal (200 ms): Error I2S saat startup
-- Mati setelah kirim: Siklus selesai, menunggu interval
+**Indikator LED:**
+- Berkedip cepat setiap 100 ms: terjadi error pada SPIFFS saat startup
+- Berkedip setiap 200 ms: terjadi error pada I2S saat startup
+- LED mati setelah pengiriman: siklus selesai, ESP32 menunggu interval berikutnya
 
-**Konfigurasi wajib diubah sebelum flash:**
+**Konfigurasi yang wajib diubah sebelum flashing:**
 ```cpp
-#define WIFI_SSID      "nama_wifi"          // ganti dengan SSID Anda
-#define WIFI_PASSWORD  "password_wifi"       // ganti dengan password Anda
-#define SERVER_HOST    "<IP_SERVER>"         // IP server Flask
+#define WIFI_SSID      "nama_wifi"
+#define WIFI_PASSWORD  "password_wifi"
+#define SERVER_HOST    "<IP_SERVER>"
 #define SERVER_PORT    5000
 ```
 
-**Library yang dibutuhkan (Arduino IDE):**
+**Library yang dibutuhkan:**
 - `WiFi.h` (bawaan ESP32 core)
 - `SPIFFS.h` (bawaan ESP32 core)
 - `driver/i2s.h` (bawaan ESP32 core)
@@ -185,20 +186,20 @@ Firmware tersimpan di folder `firmware/` dan ditulis untuk **Arduino IDE** (`.in
 
 ## Server Flask
 
-Server dijalankan dari `server/app.py` menggunakan Flask. Terdiri dari 4 modul:
+Server berjalan dari `server/app.py` dan terdiri dari empat modul:
 
-| File | Fungsi |
+| File | Tanggung Jawab |
 |---|---|
-| `app.py` | Entry point Flask, endpoint HTTP, logika *combined score* dan *streak* anomali |
-| `inference.py` | Kelas `BeeWatchInference` — memuat kedua model dan menghitung skor |
-| `database.py` | Inisialisasi SQLite dan pencatatan setiap pembacaan |
-| `notifier.py` | `TelegramNotifier` — mengirim laporan rutin dan peringatan darurat |
+| `app.py` | Entry point Flask, routing endpoint HTTP, dan logika combined score beserta streak anomali |
+| `inference.py` | Kelas `BeeWatchInference` yang memuat kedua model dan menghitung skor dari tiap modalitas |
+| `database.py` | Inisialisasi SQLite dan pencatatan setiap pembacaan ke tabel `readings` |
+| `notifier.py` | Kelas `TelegramNotifier` yang mengirim laporan rutin dan peringatan darurat |
 
-Konfigurasi server melalui file `server/.env`:
+Konfigurasi server disimpan di file `server/.env`:
 
 ```env
-TELEGRAM_BOT_TOKEN=<token_bot_telegram_anda>
-TELEGRAM_CHAT_ID=<chat_id_tujuan>
+TELEGRAM_BOT_TOKEN=<token_dari_BotFather>
+TELEGRAM_CHAT_ID=<chat_id_atau_group_id>
 PORT=5000
 ANOMALY_CONSECUTIVE_COUNT=2
 ```
@@ -207,67 +208,67 @@ ANOMALY_CONSECUTIVE_COUNT=2
 
 ## Model Sensor Autoencoder
 
-> Notebook training: `sensor_training.ipynb`
+Notebook training tersedia di `sensor_training.ipynb`.
 
 ### Dataset
 
-- **Sumber:** [Kaggle — Beehive Sounds (annajyang)](https://www.kaggle.com/datasets/annajyang/beehive-sounds)
-- **File:** `all_data_updated.csv` — 1.275 baris data lingkungan sarang dari 4 koloni lebah madu Eropa
-- **Fitur yang digunakan:** `hive temp`, `hive humidity`, `hive pressure` (3 fitur; `hive weight` tidak digunakan)
-- **Pendekatan:** Unsupervised — label `target` tidak digunakan saat training, hanya untuk referensi evaluasi
+- **Sumber:** [Kaggle: Beehive Sounds by annajyang](https://www.kaggle.com/datasets/annajyang/beehive-sounds)
+- **File:** `all_data_updated.csv` berisi 1.275 baris data lingkungan sarang dari 4 koloni lebah madu Eropa
+- **Fitur yang digunakan:** `hive temp`, `hive humidity`, `hive pressure` (kolom `hive weight` tidak disertakan)
+- **Pendekatan:** Unsupervised. Label `target` tidak digunakan saat training dan hanya dipakai sebagai referensi evaluasi
 
 ### Distribusi Fitur Sensor
 
-Distribusi ketiga fitur sensor menunjukkan rentang kondisi sarang yang normal. Suhu berkisar 15–55 °C dengan puncak di ~28 °C, kelembaban 15–90 %RH, dan tekanan 1004–1016 hPa.
+Distribusi ketiga fitur sensor memperlihatkan rentang kondisi sarang yang normal: suhu berkisar 15 hingga 55 °C dengan puncak di sekitar 28 °C, kelembaban antara 15 hingga 90 %RH, dan tekanan pada rentang 1004 hingga 1016 hPa.
 
 ![Distribusi Fitur Sensor](training/sensor_distribution.png)
 
 ### Analisis Korelasi Sensor
 
-Scatter matrix antar-fitur menunjukkan korelasi negatif antara suhu dan kelembaban — kondisi yang diharapkan pada sarang lebah aktif.
+Scatter matrix antar-fitur memperlihatkan korelasi negatif antara suhu dan kelembaban, yaitu kondisi yang wajar dan diharapkan pada sarang lebah aktif.
 
 ![Korelasi Sensor](training/sensor_correlation.png)
 
 ### Arsitektur Model
 
-Model sensor menggunakan **autoencoder simetris** dengan bottleneck 2 dimensi (sengaja kecil agar mudah divisualisasikan):
+Model sensor menggunakan **autoencoder simetris** dengan bottleneck 2 dimensi. Ukuran bottleneck dibuat kecil agar representasi laten dapat divisualisasikan secara langsung.
 
 ```
 Input (3)
    └─► Dense(16) + ReLU
            └─► Dense(8) + ReLU
-                   └─► Dense(2)  ← BOTTLENECK
+                   └─► Dense(2)  [BOTTLENECK]
                            └─► Dense(8) + ReLU
                                    └─► Dense(16) + ReLU
                                            └─► Output (3)
 ```
 
-- **Optimizer:** Adam (lr = 0.001)
-- **Loss:** MSE
-- **Scaler:** StandardScaler (fit hanya di data train, disimpan ke `sensor_scaler.pkl`)
-- **Threshold anomali:** Persentil 95 reconstruction error pada data train
+- **Optimizer:** Adam dengan learning rate 0.001
+- **Loss:** Mean Squared Error (MSE)
+- **Normalisasi:** StandardScaler di-fit hanya pada data train, lalu disimpan sebagai `sensor_scaler.pkl`
+- **Threshold anomali:** Persentil 95 dari reconstruction error pada data train
 
-### Kurva Training Sensor
+### Kurva Training
 
-Model konvergen dengan baik pada epoch ke-123 (ditentukan oleh EarlyStopping, patience=20). Validation loss konsisten di bawah training loss — tidak ada overfitting.
+Model mencapai konvergensi pada epoch ke-123 yang ditentukan oleh EarlyStopping dengan patience 20. Validation loss secara konsisten berada di bawah training loss, menandakan tidak adanya overfitting.
 
 ![Kurva Training Sensor](training/sensor_training_loss.png)
 
-### Distribusi Reconstruction Error Sensor
+### Distribusi Reconstruction Error
 
-Sebagian besar sampel memiliki error rendah (dekat nol). Threshold P95 = **0.3848** berarti hanya 5% sampel dengan error tertinggi yang diklasifikasikan sebagai anomali.
+Sebagian besar sampel memiliki error yang rendah dan mendekati nol. Threshold P95 yang ditetapkan pada nilai **0.3848** berarti hanya 5% sampel dengan error tertinggi yang diklasifikasikan sebagai anomali.
 
 ![Distribusi Error Sensor](training/sensor_error_distribution.png)
 
-### Evaluasi Sensor Autoencoder
+### Evaluasi Model
 
-Panel kiri menunjukkan distribusi error train vs val yang hampir identik — model tidak overfit. Panel kanan memperlihatkan representasi bottleneck 2D diwarnai berdasarkan reconstruction error: sampel dengan error tinggi (merah/pink) tampak terisolasi di tepi kiri cluster, mengkonfirmasi bahwa model belajar memisahkan kondisi anomali.
+Panel kiri menunjukkan distribusi error antara data train dan validasi yang hampir identik, mengkonfirmasi bahwa model tidak overfit. Panel kanan memperlihatkan representasi bottleneck 2D yang diwarnai berdasarkan reconstruction error: sampel dengan error tinggi tampak terisolasi di tepi cluster, menandakan model berhasil memisahkan kondisi anomali dari kondisi normal.
 
 ![Evaluasi Sensor](training/sensor_evaluation.png)
 
-### Visualisasi Bottleneck Sensor
+### Visualisasi Bottleneck
 
-Representasi bottleneck 2D diwarnai per kelas target (0–5, status koloni lebah). Meski training dilakukan secara unsupervised, bottleneck secara alami mengelompokkan kondisi sarang yang berbeda — validasi bahwa model mempelajari pola bermakna.
+Representasi bottleneck 2D diwarnai per kelas target (0 hingga 5, merepresentasikan status koloni). Meskipun training dilakukan secara unsupervised, bottleneck secara alami mengelompokkan kondisi sarang yang berbeda. Ini menjadi validasi bahwa model mempelajari struktur yang bermakna dari data.
 
 ![Bottleneck Sensor](training/sensor_bottleneck.png)
 
@@ -277,46 +278,46 @@ Representasi bottleneck 2D diwarnai per kelas target (0–5, status koloni lebah
 |---|---|
 | `sensor_autoencoder.keras` | Model Keras untuk inferensi di server |
 | `sensor_scaler.pkl` | StandardScaler yang di-fit pada data train |
-| `sensor_threshold.npy` | Nilai threshold P95 rekonstruksi error |
+| `sensor_threshold.npy` | Nilai threshold P95 reconstruction error |
 
 ---
 
 ## Model Audio Autoencoder
 
-> Notebook training: `audio_training.ipynb` (dijalankan di Kaggle Notebook, GPU T4)
+Notebook training tersedia di `audio_training.ipynb`, dijalankan di Kaggle Notebook dengan akselerasi GPU T4.
 
 ### Dataset
 
-- **Sumber:** [Kaggle — Beehive Sounds (annajyang)](https://www.kaggle.com/datasets/annajyang/beehive-sounds)
-- **File audio:** 7.100 file WAV dari 4 koloni lebah madu Eropa, rekaman ~1 menit setiap 15 menit
-- **Pendekatan:** Unsupervised murni — semua file WAV dianggap representasi pola "normal" untuk belajar
+- **Sumber:** [Kaggle: Beehive Sounds by annajyang](https://www.kaggle.com/datasets/annajyang/beehive-sounds)
+- **File audio:** 7.100 file WAV dari 4 koloni lebah madu Eropa, direkam selama kurang lebih 1 menit setiap 15 menit
+- **Pendekatan:** Unsupervised murni. Semua file WAV diperlakukan sebagai representasi pola akustik normal yang harus dipelajari model
 
-### Ekstraksi Fitur Audio (72 Dimensi)
+### Ekstraksi Fitur Audio
 
-Setiap file WAV dipotong menjadi segmen 2 detik (SR = 16.000 Hz). Dari tiap segmen diekstrak fitur akustik, lalu dirata-rata lintas segmen:
+Setiap file WAV dipotong menjadi segmen 2 detik dengan sample rate 16.000 Hz. Dari tiap segmen diekstrak fitur akustik, kemudian dirata-ratakan lintas segmen untuk menghasilkan satu vektor per file:
 
-| Fitur | Paramater | Dimensi |
+| Fitur | Parameter | Dimensi |
 |---|---|---|
 | MFCC mean | 13 koefisien | 13 |
 | MFCC std | 13 koefisien | 13 |
 | Mel-Spectrogram mean | 20 band dari 128 mel | 20 |
 | Mel-Spectrogram std | 20 band dari 128 mel | 20 |
-| Spectral Centroid mean + std | — | 2 |
-| Spectral Rolloff mean + std | — | 2 |
-| Zero Crossing Rate mean + std | — | 2 |
+| Spectral Centroid mean + std | - | 2 |
+| Spectral Rolloff mean + std | - | 2 |
+| Zero Crossing Rate mean + std | - | 2 |
 | **Total** | | **72** |
 
 Parameter ekstraktor: `n_fft=512`, `hop_length=256`, `n_mels=128`
 
-### Distribusi Fitur Audio (MFCC)
+### Distribusi Fitur Audio
 
-Distribusi 12 koefisien MFCC pertama menunjukkan bentuk distribusi yang relatif normal dan simetris setelah normalisasi — kondisi yang baik untuk pelatihan autoencoder.
+Distribusi 12 koefisien MFCC pertama memperlihatkan bentuk yang relatif normal dan simetris. Ini merupakan kondisi yang baik untuk pelatihan autoencoder karena fitur tidak terlalu skewed.
 
 ![Distribusi Fitur Audio](training/audio_feature_distribution.png)
 
-### PCA Fitur Audio — Sebelum Normalisasi
+### PCA Fitur Audio Sebelum Normalisasi
 
-Sebelum normalisasi, PC1 mendominasi 98,3% variance karena perbedaan skala antar-fitur yang besar. Ini mengkonfirmasi perlunya StandardScaler sebelum training.
+Sebelum normalisasi diterapkan, PC1 mendominasi 98,3% dari total variance. Hal ini terjadi karena perbedaan skala yang besar antar-fitur dan menjadi alasan utama mengapa StandardScaler wajib diterapkan sebelum training.
 
 ![PCA Audio Sebelum Normalisasi](training/audio_pca_raw.png)
 
@@ -327,41 +328,41 @@ Model audio menggunakan **progressive compression** dengan bottleneck 32 dimensi
 ```
 Input (72)
    └─► Dense(64) + BatchNorm + ReLU + Dropout(0.1)
-           └─► Dense(32)  ← BOTTLENECK (aktivasi ReLU)
+           └─► Dense(32)  [BOTTLENECK, aktivasi ReLU]
                    └─► Dense(64) + BatchNorm + ReLU + Dropout(0.1)
                            └─► Output (72)
 ```
 
-- **Optimizer:** Adam (lr = 0.001), dengan `ReduceLROnPlateau` (factor=0.5, patience=8)
-- **Loss:** MSE
-- **Split:** 80% train / 20% val
-- **Max epochs:** 250, dihentikan oleh `EarlyStopping` (patience=20)
+- **Optimizer:** Adam (lr = 0.001) dengan `ReduceLROnPlateau` factor 0.5 dan patience 8
+- **Loss:** Mean Squared Error (MSE)
+- **Split data:** 80% train / 20% validasi
+- **Maksimum epoch:** 250, dihentikan lebih awal oleh `EarlyStopping` dengan patience 20
 
-### Kurva Training Audio
+### Kurva Training
 
-Model konvergen pada epoch ke-180. Validation loss (merah) berada di bawah training loss — menunjukkan tidak ada overfitting. Penurunan loss yang mulus mengkonfirmasi bahwa arsitektur progressive compression bekerja dengan baik untuk data akustik 72 dimensi.
+Model mencapai konvergensi pada epoch ke-180. Validation loss (garis merah) secara konsisten berada di bawah training loss, menunjukkan model tidak overfit. Penurunan loss yang mulus mengkonfirmasi bahwa arsitektur progressive compression bekerja efektif untuk data akustik 72 dimensi.
 
 ![Kurva Training Audio](training/audio_training_loss.png)
 
-### Distribusi Reconstruction Error Audio
+### Distribusi Reconstruction Error
 
-Panel kiri: distribusi error sangat right-skewed — sebagian besar sampel memiliki error sangat rendah, dengan ekor panjang di kanan. Threshold P95 = **0.6127**.
+Panel kiri memperlihatkan distribusi error yang sangat right-skewed: sebagian besar sampel memiliki error sangat rendah dengan ekor panjang ke kanan. Threshold P95 ditetapkan pada **0.6127**.
 
-Panel kanan: kurva error yang diurutkan (sorted error curve) — bentuk kurva "hockey stick" yang ideal, di mana error naik tajam hanya pada 5% sampel terakhir.
+Panel kanan menampilkan sorted error curve yang membentuk pola "hockey stick", yaitu pola ideal di mana error baru naik tajam pada 5% sampel terakhir.
 
 ![Distribusi Error Audio](training/audio_error_distribution.png)
 
-### Evaluasi Audio Autoencoder
+### Evaluasi Model
 
-Panel kiri (boxplot): distribusi error train dan val hampir identik dengan median mendekati 0, mengkonfirmasi tidak ada overfitting. Outlier di atas threshold merupakan sampel yang akan diklasifikasikan sebagai anomali.
+Panel kiri (boxplot) memperlihatkan distribusi error train dan validasi yang hampir identik dengan median mendekati nol, mengkonfirmasi tidak adanya overfitting. Sampel di atas garis threshold adalah kandidat anomali.
 
-Panel kanan: distribusi audio anomaly score (0–1). Sebagian besar sampel mendapat skor mendekati 0 (normal). Threshold score = **0.8108** — hanya sampel dengan skor di atas ini yang memicu notifikasi.
+Panel kanan menampilkan distribusi audio anomaly score dalam rentang 0 hingga 1. Mayoritas sampel mendapat skor mendekati nol (normal). Threshold score ditetapkan pada **0.8108** dan hanya sampel dengan skor di atasnya yang akan memicu pengiriman notifikasi.
 
 ![Evaluasi Audio](training/audio_evaluation.png)
 
-### Visualisasi Bottleneck Audio (PCA 32D → 2D)
+### Visualisasi Ruang Laten
 
-Representasi ruang laten 32 dimensi diproyeksikan ke 2D menggunakan PCA (PC1 = 31,9%, PC2 = 10,5%). Sampel normal (kuning muda) membentuk cluster padat di kiri, sementara sampel anomali (merah/oranye) memencar ke kanan — bukti bahwa model berhasil mempelajari manifold pola akustik normal.
+Representasi ruang laten 32 dimensi diproyeksikan ke 2D menggunakan PCA (PC1 = 31,9%, PC2 = 10,5%). Sampel dengan pola akustik normal (kuning muda) membentuk cluster padat di sisi kiri, sementara sampel anomali (oranye dan merah) memencar ke kanan. Pemisahan ini menjadi bukti bahwa model berhasil mempelajari manifold pola akustik normal sarang lebah.
 
 ![Bottleneck PCA Audio](training/audio_bottleneck_pca.png)
 
@@ -371,14 +372,14 @@ Representasi ruang laten 32 dimensi diproyeksikan ke 2D menggunakan PCA (PC1 = 3
 |---|---|
 | `audio_autoencoder.keras` | Model Keras untuk inferensi di server |
 | `audio_scaler.pkl` | StandardScaler yang di-fit pada 7.100 sampel audio |
-| `model_config.pkl` | Konfigurasi ekstraksi fitur (SR, N_MFCC, N_MELS, N_FFT, dll.) |
+| `model_config.pkl` | Konfigurasi ekstraktor fitur (SR, N_MFCC, N_MELS, N_FFT, dll.) |
 | `thresholds.pkl` | Threshold P95, mean, dan std reconstruction error |
 
 ---
 
 ## Penggabungan Skor (Combined Score)
 
-Setelah kedua pembacaan (sensor + audio) tersedia dalam jendela waktu 5 menit, server menghitung:
+Setelah kedua pembacaan tersedia dalam jendela waktu 5 menit, server menghitung combined score sebagai berikut:
 
 ```
 sensor_score  = clip(sensor_error / sensor_threshold, 0.0, 1.0)
@@ -390,30 +391,32 @@ combined_score = 0.5 × sensor_score + 0.5 × audio_score
 is_anomaly     = combined_score > 0.5
 ```
 
-- **`sensor_score`**: error sensor dinormalisasi relatif terhadap threshold (0 = sempurna normal, 1 = setara threshold atau lebih)
-- **`audio_score`**: Z-score audio error, di-mapping ke [0,1] sehingga error = mean → score = 0.5, error = mean + 3σ → score ≈ 1.0
-- Kedua skor diberi bobot **50:50**
+Penjelasan tiap komponen:
 
-Setelah combined score dihitung, buffer `latest_sensor` dan `latest_audio` direset — setiap pasangan hanya diproses sekali.
+- **`sensor_score`** dinormalisasi relatif terhadap threshold. Nilai 0 berarti kondisi sempurna normal, nilai 1 berarti error setara atau melebihi threshold.
+- **`audio_score`** dihitung dari Z-score reconstruction error audio, lalu di-mapping ke rentang [0, 1]. Error yang sama dengan rata-rata training menghasilkan skor 0.5, sedangkan error yang berada 3 standar deviasi di atas rata-rata menghasilkan skor mendekati 1.0.
+- Kedua skor digabungkan dengan bobot **50:50**.
 
-### Logika Streak & Alert Darurat
+Setelah combined score selesai dihitung, buffer `latest_sensor` dan `latest_audio` direset sehingga setiap pasangan pembacaan hanya diproses satu kali.
+
+### Logika Streak dan Alert Darurat
 
 ```
-anomaly_streak += 1  (setiap anomali)
-anomaly_streak  = 0  (setiap normal)
+anomaly_streak += 1  # setiap kali anomali terdeteksi
+anomaly_streak  = 0  # direset setiap kali kondisi normal
 
 if anomaly_streak >= ANOMALY_CONSECUTIVE_COUNT:
-    → kirim emergency alert
-    → reset streak ke 0
+    kirim emergency alert ke Telegram
+    reset anomaly_streak ke 0
 ```
 
 ---
 
 ## Notifikasi Telegram
 
-Server mengirim dua jenis pesan:
+Server mengirim dua jenis pesan ke bot Telegram:
 
-**📊 Laporan Rutin** — dikirim setiap combined score berhasil dihitung:
+**Laporan Rutin** dikirim setiap kali combined score berhasil dihitung:
 
 ```
 📊 [BeeWatch] Laporan Rutin
@@ -427,7 +430,7 @@ Server mengirim dua jenis pesan:
 📌 Status         : ✅ NORMAL
 ```
 
-**🚨 Peringatan Darurat** — dikirim saat anomali terdeteksi N kali berturut-turut:
+**Peringatan Darurat** dikirim saat anomali terdeteksi N kali berturut-turut:
 
 ```
 🚨 [BeeWatch] PERINGATAN ANOMALI
@@ -445,15 +448,15 @@ Server mengirim dua jenis pesan:
 beewatch/
 ├── firmware/
 │   ├── sensor_node/
-│   │   └── sensor_node.ino     # Firmware ESP32 + BME280 (sensor suhu/kelembaban/tekanan)
+│   │   └── sensor_node.ino     # ESP32 + BME280: baca sensor dan kirim JSON
 │   └── audio_node/
-│       └── audio_node.ino      # Firmware ESP32 + INMP441 (perekam audio WAV)
+│       └── audio_node.ino      # ESP32 + INMP441: rekam WAV dan kirim ke server
 ├── server/
-│   ├── app.py                  # Flask server, endpoint HTTP, logika combined score
-│   ├── inference.py            # Kelas BeeWatchInference (load model + hitung skor)
-│   ├── database.py             # Inisialisasi & logging SQLite
-│   ├── notifier.py             # Telegram bot (laporan rutin & peringatan darurat)
-│   └── .env                    # Konfigurasi rahasia (token, port, dll.)
+│   ├── app.py                  # Flask server, routing, dan logika combined score
+│   ├── inference.py            # Kelas BeeWatchInference: load model dan hitung skor
+│   ├── database.py             # Inisialisasi dan pencatatan ke SQLite
+│   ├── notifier.py             # TelegramNotifier: laporan rutin dan peringatan darurat
+│   └── .env                    # Konfigurasi rahasia (tidak di-commit)
 ├── training/
 │   ├── sensor_training.ipynb   # Notebook training Sensor Autoencoder
 │   ├── audio_training.ipynb    # Notebook training Audio Autoencoder (Kaggle GPU)
@@ -469,7 +472,7 @@ beewatch/
 │   ├── audio_error_distribution.png
 │   ├── audio_evaluation.png
 │   └── audio_bottleneck_pca.png
-├── models/                     # Artefak model (diisi setelah training, tidak di-commit)
+├── models/                     # Artefak model (tidak di-commit, diisi setelah training)
 │   ├── sensor_autoencoder.keras
 │   ├── sensor_scaler.pkl
 │   ├── sensor_threshold.npy
@@ -477,24 +480,24 @@ beewatch/
 │   ├── audio_scaler.pkl
 │   ├── model_config.pkl
 │   └── thresholds.pkl
-├── data/                       # SQLite database (dibuat otomatis saat server jalan)
+├── data/                       # SQLite database (dibuat otomatis saat server pertama kali jalan)
 │   └── beewatch.db
-├── sensor_training.ipynb       # (copy di root, identik dengan training/)
-├── audio_training.ipynb        # (copy di root, identik dengan training/)
+├── sensor_training.ipynb
+├── audio_training.ipynb
 └── requirements.txt
 ```
 
 ---
 
-## Instalasi & Menjalankan Server
+## Instalasi dan Menjalankan Server
 
 ### Prasyarat
 
-- Python 3.10+
-- Artefak model sudah tersedia di folder `models/` (hasil dari training notebook)
-- Bot Telegram sudah dibuat dan token tersedia
+- Python 3.10 atau lebih baru
+- Artefak model tersedia di folder `models/` (dihasilkan dari training notebook)
+- Bot Telegram sudah dibuat melalui BotFather dan token sudah tersedia
 
-### Clone & Install Dependensi
+### Clone dan Install Dependensi
 
 ```bash
 git clone https://github.com/<username>/beewatch.git
@@ -503,6 +506,7 @@ python -m venv venv
 
 # Windows
 venv\Scripts\activate
+
 # Linux / macOS
 source venv/bin/activate
 
@@ -511,7 +515,7 @@ pip install -r requirements.txt
 
 ### Konfigurasi
 
-Buat file `server/.env`:
+Buat file `server/.env` dan isi dengan nilai yang sesuai:
 
 ```env
 TELEGRAM_BOT_TOKEN=<token_dari_BotFather>
@@ -527,7 +531,8 @@ cd server
 python app.py
 ```
 
-Output saat startup:
+Output yang muncul saat startup:
+
 ```
 Loading models...
 Sensor threshold : 0.384800
@@ -546,11 +551,11 @@ curl http://localhost:5000/health
 
 ## API Endpoint
 
-### `POST /upload/sensor`
+### POST /upload/sensor
 
 Menerima data sensor dari ESP32 Sensor Node.
 
-**Request Body (JSON):**
+**Request body (JSON):**
 ```json
 {
   "temperature": 35.5,
@@ -569,11 +574,11 @@ Menerima data sensor dari ESP32 Sensor Node.
 }
 ```
 
-`waiting_audio: true` berarti server menunggu data audio untuk menghitung combined score.
+Jika `waiting_audio` bernilai `true`, berarti server sedang menunggu data audio untuk menghitung combined score.
 
 ---
 
-### `POST /upload/audio`
+### POST /upload/audio
 
 Menerima file audio WAV dari ESP32 Audio Node.
 
@@ -595,13 +600,13 @@ curl -X POST http://localhost:5000/upload/audio \
 }
 ```
 
-Nilai `severity`: `normal` | `warning` | `critical`
+Nilai `severity` yang mungkin: `normal`, `warning`, atau `critical`.
 
 ---
 
-### `GET /health`
+### GET /health
 
-Memeriksa status server dan parameter model yang aktif.
+Memeriksa status server dan parameter model yang sedang aktif.
 
 **Response:**
 ```json
@@ -623,28 +628,28 @@ Memeriksa status server dan parameter model yang aktif.
 ### Sensor Autoencoder (Lokal)
 
 1. Unduh dataset dari Kaggle: [annajyang/beehive-sounds](https://www.kaggle.com/datasets/annajyang/beehive-sounds)
-2. Letakkan `all_data_updated.csv` di `data/sensor_data/`
-3. Jalankan `sensor_training.ipynb` dari atas ke bawah
-4. Salin artefak ke folder `models/`:
+2. Letakkan `all_data_updated.csv` di dalam folder `data/sensor_data/`
+3. Jalankan `sensor_training.ipynb` dari sel pertama hingga terakhir
+4. Salin artefak yang dihasilkan ke folder `models/`:
    - `sensor_autoencoder.keras`
    - `sensor_scaler.pkl`
    - `sensor_threshold.npy`
 
-### Audio Autoencoder (Kaggle Notebook — GPU T4)
+### Audio Autoencoder (Kaggle Notebook dengan GPU T4)
 
-Ekstraksi fitur dari 7.100 file WAV membutuhkan waktu lama; sangat disarankan menggunakan GPU Kaggle.
+Proses ekstraksi fitur dari 7.100 file WAV membutuhkan waktu yang cukup lama. Sangat disarankan untuk menjalankan notebook ini di Kaggle dengan akselerasi GPU.
 
 1. Buka `audio_training.ipynb` di Kaggle
-2. Klik **+ Add Data** → cari `annajyang/beehive-sounds` → tambahkan
-3. *(Opsional)* Tambahkan dataset cache `beewatch-cache` untuk skip ekstraksi fitur ulang
-4. Klik **Run All**
-5. Unduh artefak dari panel *Output* Kaggle, lalu salin ke folder `models/`:
+2. Tambahkan dataset `annajyang/beehive-sounds` melalui menu **+ Add Data**
+3. Opsional: tambahkan dataset cache `beewatch-cache` untuk melewati proses ekstraksi fitur yang sudah pernah dilakukan sebelumnya
+4. Jalankan semua sel dengan **Run All**
+5. Unduh artefak dari panel Output Kaggle, lalu salin ke folder `models/`:
    - `audio_autoencoder.keras`
    - `audio_scaler.pkl`
    - `model_config.pkl`
    - `thresholds.pkl`
 
-> **Catatan cache:** Setelah ekstraksi fitur selesai pertama kali, unduh `audio_features_cache.pkl` dari output Kaggle dan upload sebagai dataset Kaggle bernama `beewatch-cache`. Pada run berikutnya, notebook akan otomatis memuatnya dan melewati proses ekstraksi.
+> Setelah proses ekstraksi fitur selesai pertama kali, unduh file `audio_features_cache.pkl` dari output Kaggle dan upload sebagai dataset baru bernama `beewatch-cache`. Pada run berikutnya, notebook akan otomatis memuatnya dan melewati proses ekstraksi yang memakan waktu lama.
 
 ---
 
