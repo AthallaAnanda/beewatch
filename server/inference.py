@@ -103,8 +103,15 @@ class BeeWatchInference:
             ))
             is_anomaly = raw_err > raw_p95
         else:
-            score      = float(np.clip(raw_err, 0.0, 1.0))
-            is_anomaly = raw_err > 0.35 
+            thr_val    = self.audio_thr.get('audio_threshold_pct95', 0.35)
+            err_mean   = self.audio_thr.get('audio_mean', 0.0)
+            err_std    = self.audio_thr.get('audio_std', 1.0)
+            upper      = err_mean + 3 * err_std
+            score      = float(np.clip(
+                (raw_err - err_mean) / (upper - err_mean + 1e-8),
+                0.0, 1.0
+            ))
+            is_anomaly = raw_err > thr_val
 
         severity = 'normal'
         if is_anomaly:
