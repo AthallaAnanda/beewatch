@@ -1,5 +1,6 @@
 import os
 import time
+import numpy as np
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from pathlib import Path
@@ -25,8 +26,8 @@ COMBINED_THRESHOLD = 0.5
 TIME_WINDOW_SEC    = 300   # toleransi selisih waktu sensor vs audio (5 menit)
 STREAK_THRESHOLD   = int(os.getenv('ANOMALY_CONSECUTIVE_COUNT', 2))
 
-latest_sensor = None  # {'score': float, 'data': dict, 'time': float}
-latest_audio  = None  # {'score': float, 'result': dict, 'time': float}
+latest_sensor  = None  # {'score': float, 'data': dict, 'time': float}
+latest_audio   = None  # {'score': float, 'result': dict, 'time': float}
 anomaly_streak = 0
 # ────────────────────────────────────────────────────
 
@@ -42,10 +43,14 @@ def try_compute_combined():
         return
 
     # Normalisasi sensor error ke 0-1
+    # threshold = batas atas (score 1.0), di-clip supaya tidak lebih dari 1
     sensor_raw   = latest_sensor['score']
-    sensor_score = min(sensor_raw / (inference.sensor_threshold * 2), 1.0)
+    sensor_score = float(np.clip(
+        sensor_raw / inference.sensor_threshold,
+        0.0, 1.0
+    ))
 
-    # Audio score sudah 0-1
+    # Audio score sudah 0-1 dari inference
     audio_score = latest_audio['score']
 
     # Combined 50:50
@@ -143,11 +148,11 @@ def upload_audio():
         try_compute_combined()
 
         return jsonify({
-            'status'        : 'received',
-            'audio_score'   : result['audio_score'],
-            'audio_anomaly' : result['is_anomaly'],
-            'severity'      : result['severity'],
-            'waiting_sensor': latest_audio is not None
+            'status'         : 'received',
+            'audio_score'    : result['audio_score'],
+            'audio_anomaly'  : result['is_anomaly'],
+            'severity'       : result['severity'],
+            'waiting_sensor' : latest_audio is not None
         }), 200
 
     except Exception as e:
