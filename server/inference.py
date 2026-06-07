@@ -92,17 +92,28 @@ class BeeWatchInference:
         recon   = self.audio_model.predict(feat_scaled, verbose=0)
         raw_err = float(np.mean((feat_scaled - recon) ** 2))
 
-        upper = self.audio_thr['audio_mean'] + 3 * self.audio_thr['audio_std']
-        score = float(np.clip(
-            (raw_err - self.audio_thr['audio_mean']) / (upper - self.audio_thr['audio_mean'] + 1e-8),
-            0, 1
-        ))
-        thresh = self.audio_thr['audio_threshold_pct95']
+        
+        if 'audio_raw_p95' in self.audio_thr:
+            # Thresholds.pkl sudah punya raw stats → pakai ini
+            raw_p95  = self.audio_thr['audio_raw_p95']
+            raw_mean = self.audio_thr['audio_raw_mean']
+            score = float(np.clip(
+                (raw_err - raw_mean) / ((raw_p95 - raw_mean) * 2 + 1e-8),
+                0.0, 1.0
+            ))
+            is_anomaly = raw_err > raw_p95
+        else:
+            score      = float(np.clip(raw_err, 0.0, 1.0))
+            is_anomaly = raw_err > 0.35 
+
+        severity = 'normal'
+        if is_anomaly:
+            severity = 'critical' if score > 0.75 else 'warning'
+            
         return {
             'audio_score' : score,
-            'is_anomaly'  : score > thresh,
-            'severity'    : 'critical' if score > thresh * 1.5 else
-                            ('warning' if score > thresh else 'normal'),
+            'is_anomaly'  : is_anomaly,
+            'severity'    : severity,
             'raw_error'   : raw_err,
             'n_segments'  : n_segs
         }
