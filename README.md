@@ -31,9 +31,9 @@ BeeWatch adalah sistem pemantauan sarang lebah cerdas berbasis **IoT dan Machine
 │  suhu / kelembaban  │      │  rekam WAV 30 detik │
 │  / tekanan          │      │  setiap 15 menit    │
 └────────┬────────────┘      └──────────┬──────────┘
-         │  POST /upload/sensor          │  POST /upload/audio
-         │  (JSON)                       │  (multipart WAV)
-         └──────────────┬────────────────┘
+         │  POST /upload/sensor         │  POST /upload/audio
+         │  (JSON)                      │  (multipart WAV)
+         └──────────────┬───────────────┘
                         │
                ┌────────▼────────┐
                │  Flask Server   │
@@ -42,9 +42,9 @@ BeeWatch adalah sistem pemantauan sarang lebah cerdas berbasis **IoT dan Machine
                │  Sensor AE  ────┤──► sensor_score
                │  Audio AE   ────┤──► audio_score
                │                 │
-               │  Combined Score │
-               │  (50:50 weighted│
-               │   dalam ±5 mnt) │
+               │ Combined Score  │
+               │ (50:50 weighted │
+               │  dalam ±5 mnt)  │
                └────────┬────────┘
                         │
            ┌────────────┼────────────┐
